@@ -1,4 +1,4 @@
 package org.derp.jaxl;
 
-public final class Request<T> {
+public interface Request<T> {
 }
