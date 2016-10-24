@@ -5,6 +5,5 @@ import static org.junit.Assert.*;
 
 public final class JaxlTest {
     @Test public void testSomeLibraryMethod() {
-        assertFalse("someLibraryMethod should return 'true'", Jaxl.method());
     }
 }
