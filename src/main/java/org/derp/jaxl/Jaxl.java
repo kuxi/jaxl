@@ -1,43 +1,47 @@
 package org.derp.jaxl;
 
-import java.util.List;
+import com.google.common.reflect.TypeToken;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Future;
-
-import org.derp.jaxl.Jaxl.Dag;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 public final class Jaxl {
     Context context;
 
-    public void register(Request request, Service service) {
+    public <Req extends Request<Res>, Res> void register(TypeToken<Req> requestType, Service service) {
     }
 
-    public static <T> Task<T> request(Request<T> request) {
-        return new RequestTask<T>(request);
+    public static <Res> Task<Res> request(Request<Res> request) {
+        return new RequestTask<Res>(request);
     }
 
-    public <T> Future<T> run(Task<T> task) {
+    public <Res> CompletableFuture<Res> run(Task<Res> task) {
         // GET (DAG, Cache)
-        Dag state = evaluate(task);
+        Dag dag = evaluate(task);
         Cache cache = new Cache();
         return execute(dag, cache);
     }
 
-    private <T> Dag evaluate(RequestTask<T> task) {
-        return new Dag(task);
+    private <Res> Dag evaluate(Task<Res> task) {
+        return Dag.withTask(task);
     }
 
-    private <T> Dag evaluate(ImmediateTask<T> task) {
-        return new Dag(task);
+    private <Res> Dag evaluate(RequestTask<Res> task) {
+        return Dag.withTask(task);
     }
 
-    private <T> Dag evaluate(MapTask<T> task) {
+    private <Res> Dag evaluate(ImmediateTask<Res> task) {
+        return Dag.withTask(task);
+    }
+
+    private <Res> Dag evaluate(MapTask<Res, ?> task) {
         Dag dag = evaluate(task.parent);
-        return dag.depend(dag.lookup(task.parent), task);
+        dag.depend(dag.lookup(task.parent), task);
+        return dag;
     }
 
-    private <T> Future<T> execute(Dag, Cache) {
+    private <Res> CompletableFuture<Res> execute(Dag dag, Cache cache) {
         // 1. Find all leaves
         // 2. set taskSet = leaves
         // 3. while !taskSet.empty:
@@ -47,20 +51,19 @@ public final class Jaxl {
         //      for Node child in current.dependents:
         //          if all child's parents are started
         //              taskSet.add(child)
-        //      
+        //
         // 2. for root in roots
         //  1. future = execute root
         //  2. get all dependents
         //  3. for dependent in dependents
         //      1. execute(dependent, future, cache);
         // 3. Profit
-        Set<Node> nodeSet = dag.getLeaves();
-        Node current = null;
-        while (!nodeSet.empty()) {
-            current = nodeSet.next();
-            Future<?> future = execute(current.task, dag, cache);
-            current.future = future;
-            for (Node child : current.dependents) {
+        Set<Dag.Node> nodeSet = dag.findRoots();
+        Dag.Node current = null;
+        while (!nodeSet.isEmpty()) {
+            current = nodeSet.iterator().next();
+            current.future = Optional.of(execute(current.task, dag, cache));
+            for (Dag.Node<?> child : current.dependents) {
                 if (dag.isReady(child)) {
                     nodeSet.add(child);
                 }
@@ -69,54 +72,25 @@ public final class Jaxl {
         return current;
     }
 
-    private <T> Future<T> execute(RequestTask<T> task) {
+    private <Res> CompletableFuture<Res> execute(RequestTask<Res> task) {
         Service service = context.get(task.request);
         return service.handle(request);
     }
 
-    private <T, V> Future<V> execute(MapTask<T, V> task, Future<T> previous) {
-        return previous.map(task.transformer);
+    private <T, V> CompletableFuture<V> execute(MapTask<T, V> task, CompletableFuture<T> previous) {
+        return previous.map(task.mapper);
     }
 
-    private <T, V> Future<V> execute(FlatMapTask<T, V> task, Future<T> previous, Cache cache) {
+    private <T, V> CompletableFuture<V> execute(FlatMapTask<T, V> task, CompletableFuture<T> previous, Cache cache) {
         return previous.flatMap(value -> {
-            Task<V> newTask = task.transformer(value);
+            Task<V> newTask = task.mapper(value);
             Dag dag = evaluate(newTask);
             return execute(dag, cache);
         });
     }
 
-    class Dag {
-        List<Node> nodes;
-
-        boolean isReady(Node node) {
-            for (Node parent : node.dependencies) {
-                if (parent.future.isAbsent()) {
-                    return false;
-                }
-            }
-            return true;
-        }
-    }
-
     class Cache {
-        Map<Request<?>, Future<?>> pendingRequests;
-    }
-
-    class Service {
-    }
-    class Node<T> {
-        Task<T> task;
-        List<Task<?>> dependents;
-        List<Task<?>> dependencies;
-        Optional<Future<T>> future;
-
-        Node(Task<T> task) {
-            this.task = task;
-            dependents = new List();
-            dependencies = new List();
-            future = Optional.empty();
-        }
+        Map<Request<?>, CompletableFuture<?>> pendingRequests;
     }
 
     class Context {
