@@ -12,4 +12,3 @@ public final class RequestTask<T> extends AbstractTask<T> {
         this.request = request;
     }
 }
-

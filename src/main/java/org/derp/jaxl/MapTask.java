@@ -4,11 +4,11 @@ import java.util.function.Function;
 
 
 public final class MapTask<T, V> extends AbstractTask<V> {
-    private final Task<T> previous;
+    final Task<T> parent;
     private final Function<T, V> mapper;
 
     MapTask(Task<T> previous, Function<T, V> mapper) {
-        this.previous = previous;
+        this.parent = previous;
         this.mapper = mapper;
     }
 }

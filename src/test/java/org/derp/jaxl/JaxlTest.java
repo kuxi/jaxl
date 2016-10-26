@@ -1,13 +1,51 @@
 package org.derp.jaxl;
 
+import com.google.common.reflect.TypeToken;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 
+import org.junit.Assert;
 import org.junit.Test;
 
 import com.google.common.collect.ImmutableList;
 
 public final class JaxlTest {
+    @Test public void superBasicTest() throws Exception {
+        Jaxl jaxl = new Jaxl();
+        UserService userService = new UserService();
+        jaxl.register(TypeToken.of(UserService.GetUserRequest.class), userService);
+        final Task<User> user = UserService.getUser("leswen");
+        final CompletableFuture<User> result = jaxl.run(user);
+        Assert.assertEquals(result.get(), UserService.mockUser);
+
+    }
+
+    static class UserService implements Service {
+        public static User mockUser = new User();
+
+        @Override
+        public <Req extends Request<Res>, Res> CompletableFuture<Res> getResult(Req request) {
+            if (request instanceof GetUserRequest) {
+                return CompletableFuture.completedFuture(mockUser);
+            } else {
+                throw new RuntimeException("Service not implemented for request type");
+            }
+        }
+
+        static Task<User> getUser(String id) {
+            return new RequestTask<>(new GetUserRequest(id));
+        }
+
+        static final class GetUserRequest implements Request<User> {
+            final String userId;
+            GetUserRequest(String userId) {
+                this.userId = userId;
+            }
+        }
+
+    }
+
     @Test public void basicTest() throws Exception {
         // TODO: Define User service
         // TODO: Define Posts service
@@ -19,32 +57,28 @@ public final class JaxlTest {
         // TODO: Define isLockedDown Lockdown request
         // TODO: register User, Posts, Experiment services with jaxl
         
-        String userId = "some id";
-        String experiment = "can read posts";
-
-        Task<Boolean> accessCheck = getUser(userId)
-            .flatMap(user -> {
-                evaluateExperiment(user, experiment)
-                    .join(isLockedDown(user))
-                    .merge((canRead, isLocked) -> canRead && !isLocked);
-            });
-        accessCheck.flatMap(hasAccess -> {
-                if (hasAccess) {
-                    return Result.ok(getPosts(user));
-                } else {
-                    return Result.error(fail("u don't have access"));
-                }
-            });
-
-        Future<ImmutableList<Post>> postsFuture = Jaxl.run(postTask);
-
-        ImmutableList<Post> posts = postsFuture.get();
-
-        // Assert that posts matches what dummy posts service returns
-    }
-
-    Task<User> getUser(String id) {
-        return new RequestTask<User>(new GetUser(id));
+//        String userId = "some id";
+//        String experiment = "can read posts";
+//
+//        Task<Boolean> accessCheck = getUser(userId)
+//            .flatMap(user -> {
+//                evaluateExperiment(user, experiment)
+//                    .join(isLockedDown(user))
+//                    .merge((canRead, isLocked) -> canRead && !isLocked);
+//            });
+//        accessCheck.flatMap(hasAccess -> {
+//                if (hasAccess) {
+//                    return Result.ok(getPosts(user));
+//                } else {
+//                    return Result.error(fail("u don't have access"));
+//                }
+//            });
+//
+//        Future<ImmutableList<Post>> postsFuture = Jaxl.run(postTask);
+//
+//        ImmutableList<Post> posts = postsFuture.get();
+//
+//        // Assert that posts matches what dummy posts service returns
     }
 
     Task<ImmutableList<Post>> getPosts(User user) {
@@ -63,7 +97,7 @@ public final class JaxlTest {
         return new ImmediateTask<Error>(new Error(message));
     }
 
-    final class User {
+    static final class User {
     }
     final class Post {
     }
@@ -89,13 +123,6 @@ public final class JaxlTest {
 
         public static <T, E> Result<T, E> error(E error) {
             return new Result<T, E>(Optional.empty(), Optional.of(error));
-        }
-    }
-
-    final class GetUser implements Request<User> {
-        final String userId;
-        GetUser(String userId) {
-            this.userId = userId;
         }
     }
 
